@@ -1,119 +1,93 @@
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const path = require("path");
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static(path.join(__dirname, "../public")));
+app.use(express.static(path.join(__dirname, '../public')));
 
 const rooms = {};
 
-function generateCharacters() {
-    const genders = ["M", "F"];
-    const skin = ["clara", "media", "escura"];
-    const hair = ["careca", "curto", "longo"];
-    const eyes = ["azul", "castanho", "verde"];
-
-    let characters = [];
-
-    let id = 0;
-
-    for (let g of genders)
-    for (let s of skin)
-    for (let h of hair)
-    for (let e of eyes) {
-        characters.push({
-            id: id++,
-            gender: g,
-            skin: s,
-            hair: h,
-            eyes: e
-        });
-    }
-
-    return characters;
+function generateRoomId() {
+  return Math.random().toString(36).substring(2, 7).toUpperCase();
 }
 
-io.on("connection", (socket) => {
+io.on('connection', (socket) => {
 
-    socket.on("createRoom", (roomId) => {
-	
-	console.log("CRIAR SALA RECEBIDO:", roomId);
-        socket.join(roomId);
+  socket.on('create_room', () => {
+    const roomId = generateRoomId();
+    rooms[roomId] = { players: [socket.id], choices: {}, eliminated: {} };
+    socket.join(roomId);
+    socket.roomId = roomId;
+    socket.emit('room_created', { roomId, playerNum: 1 });
+  });
 
-        rooms[roomId] = {
-            players: [socket.id],
-            characters: generateCharacters(),
-            secrets: {},
-            turn: null
-        };
+  socket.on('join_room', ({ roomId }) => {
+    const room = rooms[roomId];
+    if (!room) return socket.emit('error', 'Sala não encontrada.');
+    if (room.players.length >= 2) return socket.emit('error', 'Sala cheia.');
+    room.players.push(socket.id);
+    socket.join(roomId);
+    socket.roomId = roomId;
+    socket.emit('room_joined', { roomId, playerNum: 2 });
+    io.to(roomId).emit('both_connected');
+  });
 
-        socket.emit("roomCreated", roomId);
-    });
+  socket.on('choose_character', ({ charIndex }) => {
+    const room = rooms[socket.roomId];
+    if (!room) return;
+    room.choices[socket.id] = charIndex;
+    room.eliminated[socket.id] = [];
+    socket.emit('character_chosen');
+    if (Object.keys(room.choices).length === 2) {
+      io.to(room.players[0]).emit('your_turn');
+      io.to(room.players[1]).emit('wait_turn');
+    }
+  });
 
-    socket.on("joinRoom", (roomId) => {
-	console.log("Tentando entrar na sala:", roomId);
-        const room = rooms[roomId];
+  socket.on('send_question', ({ text }) => {
+    const room = rooms[socket.roomId];
+    if (!room) return;
+    const opponent = room.players.find(id => id !== socket.id);
+    io.to(opponent).emit('receive_question', { text });
+  });
 
-        if (!room) {
-            socket.emit("errorMessage", "Sala não existe");
-            return;
-        }
+  socket.on('send_answer', ({ answer }) => {
+    const room = rooms[socket.roomId];
+    if (!room) return;
+    const opponent = room.players.find(id => id !== socket.id);
+    io.to(opponent).emit('receive_answer', { answer });
+    io.to(socket.id).emit('your_turn');
+    io.to(opponent).emit('wait_turn');
+  });
 
-        if (room.players.length >= 2) {
-            socket.emit("errorMessage", "Sala cheia");
-            return;
-        }
+  socket.on('eliminate', ({ charIndex }) => {
+    const room = rooms[socket.roomId];
+    if (!room) return;
+    room.eliminated[socket.id] = room.eliminated[socket.id] || [];
+    room.eliminated[socket.id].push(charIndex);
+  });
 
-        room.players.push(socket.id);
-	console.log("Jogador entrou. Total:", room.players.length);
-        socket.join(roomId);
+  socket.on('guess_character', ({ charIndex }) => {
+    const room = rooms[socket.roomId];
+    if (!room) return;
+    const opponent = room.players.find(id => id !== socket.id);
+    const correct = room.choices[opponent] === charIndex;
+    socket.emit('guess_result', { correct });
+    io.to(opponent).emit('guess_result', { correct: !correct });
+  });
 
-        // manda tabuleiro para os 2 jogadores
-        io.to(roomId).emit("gameStart", {
-            characters: room.characters
-        });
-
-        room.turn = room.players[0];
-
-        io.to(roomId).emit("turnUpdate", room.turn);
-    });
-
-    socket.on("chooseSecret", ({ roomId, characterId }) => {
-        const room = rooms[roomId];
-        room.secrets[socket.id] = characterId;
-    });
-
-    socket.on("askQuestion", ({ roomId, question }) => {
-        const room = rooms[roomId];
-
-        socket.to(roomId).emit("question", {
-            question
-        });
-    });
-
-    socket.on("answer", ({ roomId, answer }) => {
-        const room = rooms[roomId];
-
-        io.to(roomId).emit("answer", answer);
-    });
-
-    socket.on("guess", ({ roomId, guessId }) => {
-        const room = rooms[roomId];
-
-        const secret = Object.values(room.secrets).find(id => id !== undefined);
-
-        if (guessId === secret) {
-            io.to(roomId).emit("gameOver", {
-                winner: socket.id
-            });
-        }
-    });
+  socket.on('disconnect', () => {
+    const roomId = socket.roomId;
+    if (roomId && rooms[roomId]) {
+      io.to(roomId).emit('opponent_left');
+      delete rooms[roomId];
+    }
+  });
 });
 
-server.listen(process.env.PORT || 3000, () => {
-    console.log("Servidor rodando");
-});
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));

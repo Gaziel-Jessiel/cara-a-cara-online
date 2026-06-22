@@ -1,41 +1,485 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <title>Cara a Cara Online</title>
-    <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cara a Cara Online</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+
+  /* ---- TELAS ---- */
+  .screen { display: none; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+  .screen.active { display: flex; }
+
+  /* Lobby */
+  #screen-lobby h1 { font-size: 2.5rem; color: #e94560; margin-bottom: 8px; }
+  #screen-lobby p { color: #aaa; margin-bottom: 40px; }
+  .lobby-btns { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+  .btn { padding: 14px 28px; border: none; border-radius: 10px; font-size: 1rem; cursor: pointer; font-weight: 600; transition: transform .1s, opacity .1s; }
+  .btn:active { transform: scale(.97); }
+  .btn-primary { background: #e94560; color: #fff; }
+  .btn-secondary { background: #16213e; color: #e94560; border: 2px solid #e94560; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* Join input */
+  #join-area { display: none; flex-direction: column; align-items: center; gap: 12px; margin-top: 20px; }
+  #join-area input { padding: 12px 16px; border-radius: 8px; border: 2px solid #e94560; background: #16213e; color: #eee; font-size: 1.1rem; text-align: center; width: 200px; letter-spacing: 4px; text-transform: uppercase; }
+
+  /* Waiting */
+  #screen-waiting h2 { color: #e94560; font-size: 1.8rem; margin-bottom: 12px; }
+  .room-code { font-size: 3rem; font-weight: 900; letter-spacing: 10px; color: #fff; background: #16213e; padding: 20px 40px; border-radius: 16px; border: 2px solid #e94560; margin: 20px 0; }
+  #screen-waiting p { color: #aaa; }
+
+  /* Choose character */
+  #screen-choose h2 { color: #e94560; margin-bottom: 6px; }
+  #screen-choose p { color: #aaa; margin-bottom: 20px; font-size: .9rem; }
+  .char-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; max-width: 720px; width: 100%; }
+  @media(max-width: 600px) { .char-grid { grid-template-columns: repeat(4, 1fr); } }
+  .char-card { background: #16213e; border-radius: 10px; padding: 10px 6px; text-align: center; cursor: pointer; border: 2px solid transparent; transition: border-color .2s, transform .15s; }
+  .char-card:hover { border-color: #e94560; transform: scale(1.05); }
+  .char-card.selected { border-color: #4ecca3; background: #0f3460; }
+  .char-card svg { width: 60px; height: 60px; }
+  .char-card .char-name { font-size: .72rem; margin-top: 4px; color: #ccc; }
+
+  /* Game */
+  #screen-game { flex-direction: column; min-height: 100vh; padding: 10px; justify-content: flex-start; }
+  .game-header { display: flex; justify-content: space-between; align-items: center; width: 100%; max-width: 900px; margin-bottom: 10px; padding: 8px 14px; background: #16213e; border-radius: 10px; }
+  .game-header .secret { font-size: .8rem; color: #aaa; }
+  .game-header .secret strong { color: #4ecca3; }
+  #turn-indicator { font-weight: 700; font-size: .9rem; padding: 6px 14px; border-radius: 20px; }
+  #turn-indicator.your-turn { background: #4ecca3; color: #1a1a2e; }
+  #turn-indicator.wait { background: #444; color: #aaa; }
+
+  /* Tabuleiro */
+  .board { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; max-width: 900px; width: 100%; margin-bottom: 10px; }
+  @media(max-width: 600px) { .board { grid-template-columns: repeat(4, 1fr); } }
+  .board-card { background: #16213e; border-radius: 8px; padding: 8px 4px; text-align: center; cursor: pointer; border: 2px solid transparent; position: relative; transition: opacity .3s; }
+  .board-card.eliminated { opacity: .22; filter: grayscale(1); }
+  .board-card.eliminated::after { content: '✕'; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 2rem; color: #e94560; font-weight: 900; }
+  .board-card svg { width: 52px; height: 52px; }
+  .board-card .char-name { font-size: .65rem; color: #bbb; margin-top: 3px; }
+
+  /* Chat / perguntas */
+  .game-bottom { display: flex; gap: 12px; max-width: 900px; width: 100%; flex-wrap: wrap; }
+  .chat-box { flex: 1; min-width: 240px; background: #16213e; border-radius: 10px; padding: 12px; }
+  .chat-log { height: 160px; overflow-y: auto; font-size: .82rem; display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .msg { padding: 6px 10px; border-radius: 8px; max-width: 90%; }
+  .msg.question { background: #0f3460; align-self: flex-start; }
+  .msg.answer-yes { background: #1a472a; align-self: flex-end; }
+  .msg.answer-no  { background: #5c1a1a; align-self: flex-end; }
+  .msg.system { background: #2a2a2a; align-self: center; color: #aaa; font-size: .75rem; }
+  .question-row { display: flex; gap: 8px; }
+  .question-row input { flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid #333; background: #0f1f40; color: #eee; font-size: .9rem; }
+  .question-row button { padding: 8px 14px; border-radius: 8px; border: none; background: #e94560; color: #fff; cursor: pointer; font-weight: 600; }
+
+  /* Painel de resposta */
+  .answer-panel { display: none; flex-direction: column; gap: 8px; }
+  .answer-panel p { font-size: .9rem; color: #ccc; }
+  .answer-panel strong { color: #fff; }
+  .answer-btns { display: flex; gap: 10px; }
+  .btn-yes { background: #4ecca3; color: #1a1a2e; }
+  .btn-no  { background: #e94560; color: #fff; }
+
+  /* Botão adivinhar */
+  .guess-area { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+  .guess-area p { font-size: .8rem; color: #aaa; }
+  #guess-btn { background: #f5a623; color: #1a1a2e; width: 100%; }
+
+  /* Modal resultado */
+  #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.8); align-items: center; justify-content: center; z-index: 99; }
+  #modal.show { display: flex; }
+  .modal-box { background: #16213e; border-radius: 16px; padding: 40px; text-align: center; border: 2px solid #e94560; }
+  .modal-box h2 { font-size: 2.5rem; margin-bottom: 12px; }
+  .modal-box p { color: #aaa; margin-bottom: 24px; }
+  .emoji { font-size: 4rem; display: block; margin-bottom: 12px; }
+
+  /* Tooltip atributos */
+  .board-card:hover .attr-tip { display: block; }
+  .attr-tip { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #0f1f40; border: 1px solid #444; border-radius: 8px; padding: 8px 10px; font-size: .7rem; white-space: nowrap; z-index: 10; color: #ccc; line-height: 1.6; }
+</style>
 </head>
 <body>
 
-    <h1>🎮 Cara a Cara Online</h1>
+<!-- LOBBY -->
+<div id="screen-lobby" class="screen active">
+  <h1>🎭 Cara a Cara</h1>
+  <p>Jogue com sua pessoa favorita, onde ela estiver!</p>
+  <div class="lobby-btns">
+    <button class="btn btn-primary" onclick="createRoom()">Criar Sala</button>
+    <button class="btn btn-secondary" onclick="showJoin()">Entrar na Sala</button>
+  </div>
+  <div id="join-area">
+    <input id="room-input" placeholder="CÓDIGO" maxlength="5" oninput="this.value=this.value.toUpperCase()">
+    <button class="btn btn-primary" onclick="joinRoom()">Entrar</button>
+    <p id="join-error" style="color:#e94560;font-size:.85rem;"></p>
+  </div>
+</div>
 
-    <div id="menu">
-        <input id="roomInput" placeholder="Código da sala">
-        <button onclick="createRoom()">Criar Sala</button>
-        <button onclick="joinRoom()">Entrar na Sala</button>
+<!-- AGUARDANDO -->
+<div id="screen-waiting" class="screen">
+  <h2>Sala criada! 🎉</h2>
+  <p>Compartilhe o código com sua parceira:</p>
+  <div class="room-code" id="display-room-code">-----</div>
+  <p>Aguardando o segundo jogador entrar...</p>
+</div>
+
+<!-- ESCOLHER PERSONAGEM -->
+<div id="screen-choose" class="screen">
+  <h2>Escolha seu personagem secreto</h2>
+  <p>O adversário não saberá quem você escolheu!</p>
+  <div class="char-grid" id="choose-grid"></div>
+  <button class="btn btn-primary" id="confirm-btn" style="margin-top:20px;" onclick="confirmChoice()" disabled>Confirmar Escolha</button>
+</div>
+
+<!-- JOGO -->
+<div id="screen-game" class="screen">
+  <div class="game-header">
+    <div class="secret">Seu personagem: <strong id="my-char-label">?</strong></div>
+    <div id="turn-indicator" class="wait">Aguardando...</div>
+  </div>
+
+  <div class="board" id="board"></div>
+
+  <div class="game-bottom">
+    <!-- Chat -->
+    <div class="chat-box">
+      <div class="chat-log" id="chat-log"></div>
+
+      <!-- Minha vez: fazer pergunta -->
+      <div id="question-area" style="display:none;">
+        <div class="question-row">
+          <input id="question-input" placeholder="Ex: Seu personagem tem olhos claros?" maxlength="100"
+            onkeydown="if(event.key==='Enter') sendQuestion()">
+          <button onclick="sendQuestion()">Enviar</button>
+        </div>
+      </div>
+
+      <!-- Vez do oponente: responder -->
+      <div class="answer-panel" id="answer-panel">
+        <p>Pergunta do adversário: <strong id="question-text">—</strong></p>
+        <div class="answer-btns">
+          <button class="btn btn-yes" onclick="sendAnswer('Sim ✅')">Sim</button>
+          <button class="btn btn-no"  onclick="sendAnswer('Não ❌')">Não</button>
+        </div>
+      </div>
     </div>
 
-    <p id="status"></p>
-
-    <div id="gameArea" style="display:none;">
-        <h2>Tabuleiro</h2>
-
-        <div id="board"></div>
-
-        <hr>
-
-        <input id="questionInput"
-               placeholder="Digite uma pergunta">
-
-        <button onclick="sendQuestion()">
-            Perguntar
-        </button>
-
-        <div id="messages"></div>
+    <!-- Adivinhar -->
+    <div class="guess-area">
+      <p>Acha que sabe quem é?<br>Clique no personagem e aperte o botão!</p>
+      <button class="btn" id="guess-btn" onclick="guessCharacter()" disabled>🎯 Adivinhar!</button>
     </div>
+  </div>
+</div>
 
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="game.js"></script>
+<!-- MODAL RESULTADO -->
+<div id="modal">
+  <div class="modal-box">
+    <span class="emoji" id="modal-emoji">🏆</span>
+    <h2 id="modal-title">Parabéns!</h2>
+    <p id="modal-msg">Você acertou!</p>
+    <button class="btn btn-primary" onclick="location.reload()">Jogar de Novo</button>
+  </div>
+</div>
 
+<script>
+// ===================== PERSONAGENS =====================
+const CHARACTERS = [
+  { name:"Ana",    gender:"F", hair:"longo",  hairColor:"castanho", eyes:"castanhos", skin:"clara",  glasses:false, hat:false, beard:false },
+  { name:"Bruno",  gender:"M", hair:"curto",  hairColor:"preto",    eyes:"castanhos", skin:"morena", glasses:false, hat:false, beard:true  },
+  { name:"Carla",  gender:"F", hair:"médio",  hairColor:"loiro",    eyes:"azuis",     skin:"clara",  glasses:true,  hat:false, beard:false },
+  { name:"Diego",  gender:"M", hair:"careca", hairColor:"nenhum",   eyes:"castanhos", skin:"morena", glasses:false, hat:true,  beard:true  },
+  { name:"Elena",  gender:"F", hair:"longo",  hairColor:"ruivo",    eyes:"verdes",    skin:"clara",  glasses:false, hat:false, beard:false },
+  { name:"Felipe", gender:"M", hair:"curto",  hairColor:"loiro",    eyes:"azuis",     skin:"clara",  glasses:true,  hat:false, beard:false },
+  { name:"Gabi",   gender:"F", hair:"curto",  hairColor:"preto",    eyes:"castanhos", skin:"escura", glasses:false, hat:false, beard:false },
+  { name:"Hugo",   gender:"M", hair:"médio",  hairColor:"castanho", eyes:"verdes",    skin:"clara",  glasses:false, hat:true,  beard:false },
+  { name:"Iris",   gender:"F", hair:"longo",  hairColor:"loiro",    eyes:"azuis",     skin:"clara",  glasses:true,  hat:false, beard:false },
+  { name:"João",   gender:"M", hair:"curto",  hairColor:"preto",    eyes:"castanhos", skin:"morena", glasses:false, hat:false, beard:false },
+  { name:"Kika",   gender:"F", hair:"médio",  hairColor:"castanho", eyes:"castanhos", skin:"morena", glasses:false, hat:true,  beard:false },
+  { name:"Lucas",  gender:"M", hair:"longo",  hairColor:"ruivo",    eyes:"verdes",    skin:"clara",  glasses:false, hat:false, beard:true  },
+  { name:"Mara",   gender:"F", hair:"curto",  hairColor:"loiro",    eyes:"castanhos", skin:"escura", glasses:true,  hat:false, beard:false },
+  { name:"Neto",   gender:"M", hair:"médio",  hairColor:"preto",    eyes:"castanhos", skin:"escura", glasses:false, hat:false, beard:true  },
+  { name:"Olga",   gender:"F", hair:"longo",  hairColor:"preto",    eyes:"azuis",     skin:"clara",  glasses:false, hat:true,  beard:false },
+  { name:"Pedro",  gender:"M", hair:"careca", hairColor:"nenhum",   eyes:"castanhos", skin:"clara",  glasses:true,  hat:false, beard:false },
+  { name:"Quinn",  gender:"F", hair:"médio",  hairColor:"ruivo",    eyes:"verdes",    skin:"morena", glasses:false, hat:false, beard:false },
+  { name:"Raul",   gender:"M", hair:"curto",  hairColor:"castanho", eyes:"azuis",     skin:"morena", glasses:false, hat:true,  beard:false },
+  { name:"Sara",   gender:"F", hair:"longo",  hairColor:"castanho", eyes:"verdes",    skin:"escura", glasses:true,  hat:false, beard:false },
+  { name:"Tiago",  gender:"M", hair:"médio",  hairColor:"loiro",    eyes:"castanhos", skin:"clara",  glasses:false, hat:false, beard:true  },
+  { name:"Uma",    gender:"F", hair:"curto",  hairColor:"preto",    eyes:"castanhos", skin:"morena", glasses:false, hat:true,  beard:false },
+  { name:"Vitor",  gender:"M", hair:"longo",  hairColor:"castanho", eyes:"verdes",    skin:"escura", glasses:false, hat:false, beard:false },
+  { name:"Wendy",  gender:"F", hair:"médio",  hairColor:"loiro",    eyes:"azuis",     skin:"clara",  glasses:true,  hat:true,  beard:false },
+  { name:"Xande",  gender:"M", hair:"curto",  hairColor:"ruivo",    eyes:"verdes",    skin:"clara",  glasses:false, hat:false, beard:true  },
+];
+
+// ===================== GERAR AVATAR SVG =====================
+function avatar(c, size=60) {
+  const skinMap = { clara:"#f5cba7", morena:"#c68642", escura:"#7d4623" };
+  const hairMap = { castanho:"#6b3a2a", preto:"#1a1a1a", loiro:"#e8c84a", ruivo:"#c0392b", nenhum:"transparent" };
+  const eyeMap  = { castanhos:"#6b3a2a", azuis:"#2980b9", verdes:"#27ae60" };
+
+  const sk = skinMap[c.skin] || "#f5cba7";
+  const hr = hairMap[c.hairColor] || "#333";
+  const ey = eyeMap[c.eyes] || "#333";
+  const isFemale = c.gender === "F";
+
+  let hair = "";
+  if (c.hair === "longo") {
+    hair = `<ellipse cx="30" cy="24" rx="16" ry="18" fill="${hr}"/>
+            <rect x="14" y="28" width="5" height="22" rx="2" fill="${hr}"/>
+            <rect x="41" y="28" width="5" height="22" rx="2" fill="${hr}"/>`;
+  } else if (c.hair === "curto") {
+    hair = `<ellipse cx="30" cy="22" rx="15" ry="10" fill="${hr}"/>`;
+  } else if (c.hair === "médio") {
+    hair = `<ellipse cx="30" cy="23" rx="16" ry="13" fill="${hr}"/>
+            <rect x="14" y="28" width="4" height="12" rx="2" fill="${hr}"/>
+            <rect x="42" y="28" width="4" height="12" rx="2" fill="${hr}"/>`;
+  }
+
+  const glasses = c.glasses
+    ? `<rect x="18" y="30" width="9" height="6" rx="2" fill="none" stroke="#555" stroke-width="1.5"/>
+       <rect x="33" y="30" width="9" height="6" rx="2" fill="none" stroke="#555" stroke-width="1.5"/>
+       <line x1="27" y1="33" x2="33" y2="33" stroke="#555" stroke-width="1.5"/>`
+    : "";
+
+  const hat = c.hat
+    ? `<rect x="14" y="16" width="32" height="5" rx="2" fill="#2c3e50"/>
+       <rect x="19" y="8" width="22" height="10" rx="3" fill="#2c3e50"/>`
+    : "";
+
+  const beard = c.beard
+    ? `<ellipse cx="30" cy="44" rx="9" ry="5" fill="${hr}" opacity=".7"/>`
+    : "";
+
+  const lips = isFemale
+    ? `<ellipse cx="30" cy="43" rx="5" ry="2.5" fill="#e88"/>`
+    : `<line x1="25" y1="43" x2="35" y2="43" stroke="#c0a080" stroke-width="1.5"/>`;
+
+  return `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
+    ${hat}
+    ${hair}
+    <ellipse cx="30" cy="33" rx="13" ry="15" fill="${sk}"/>
+    <circle cx="24" cy="31" r="3" fill="white"/>
+    <circle cx="36" cy="31" r="3" fill="white"/>
+    <circle cx="24.8" cy="31.5" r="1.5" fill="${ey}"/>
+    <circle cx="36.8" cy="31.5" r="1.5" fill="${ey}"/>
+    ${glasses}
+    <ellipse cx="30" cy="36" rx="2" ry="1.5" fill="${sk === '#f5cba7' ? '#e0a090' : '#b07050'}"/>
+    ${lips}
+    ${beard}
+  </svg>`;
+}
+
+function attrTip(c) {
+  return `Gênero: ${c.gender === 'F' ? 'Feminino' : 'Masculino'}<br>
+Cabelo: ${c.hair} ${c.hairColor}<br>
+Olhos: ${c.eyes}<br>
+Pele: ${c.skin}<br>
+Óculos: ${c.glasses ? 'Sim' : 'Não'}<br>
+Chapéu: ${c.hat ? 'Sim' : 'Não'}<br>
+Barba: ${c.beard ? 'Sim' : 'Não'}`;
+}
+
+// ===================== ESTADO =====================
+const socket = io();
+let myCharIndex = null;
+let selectedGuessIndex = null;
+let isMyTurn = false;
+let pendingQuestion = null;
+let playerNum = null;
+
+// ===================== TELAS =====================
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function showJoin() {
+  document.getElementById('join-area').style.display = 'flex';
+}
+
+function createRoom() { socket.emit('create_room'); }
+
+function joinRoom() {
+  const code = document.getElementById('room-input').value.trim();
+  if (code.length < 3) return;
+  socket.emit('join_room', { roomId: code });
+}
+
+// ===================== GRADE DE ESCOLHA =====================
+function buildChooseGrid() {
+  const grid = document.getElementById('choose-grid');
+  grid.innerHTML = '';
+  CHARACTERS.forEach((c, i) => {
+    const div = document.createElement('div');
+    div.className = 'char-card';
+    div.innerHTML = avatar(c, 60) + `<div class="char-name">${c.name}</div>`;
+    div.onclick = () => {
+      document.querySelectorAll('.char-card').forEach(d => d.classList.remove('selected'));
+      div.classList.add('selected');
+      myCharIndex = i;
+      document.getElementById('confirm-btn').disabled = false;
+    };
+    grid.appendChild(div);
+  });
+}
+
+function confirmChoice() {
+  if (myCharIndex === null) return;
+  socket.emit('choose_character', { charIndex: myCharIndex });
+}
+
+// ===================== TABULEIRO =====================
+function buildBoard() {
+  const board = document.getElementById('board');
+  board.innerHTML = '';
+  CHARACTERS.forEach((c, i) => {
+    const div = document.createElement('div');
+    div.className = 'board-card';
+    div.id = `card-${i}`;
+    div.innerHTML = avatar(c, 52) +
+      `<div class="char-name">${c.name}</div>
+       <div class="attr-tip">${attrTip(c)}</div>`;
+    div.onclick = () => selectForGuess(i, div);
+    board.appendChild(div);
+  });
+  document.getElementById('my-char-label').textContent = CHARACTERS[myCharIndex].name;
+}
+
+function selectForGuess(i, el) {
+  if (el.classList.contains('eliminated')) return;
+  // Toggle eliminado com duplo clique
+  // Clique simples: selecionar para adivinhar / eliminar
+  if (selectedGuessIndex === i) {
+    // segundo clique = eliminar
+    el.classList.add('eliminated');
+    socket.emit('eliminate', { charIndex: i });
+    selectedGuessIndex = null;
+    document.getElementById('guess-btn').disabled = true;
+  } else {
+    document.querySelectorAll('.board-card').forEach(d => d.style.outline = 'none');
+    el.style.outline = '2px solid #f5a623';
+    selectedGuessIndex = i;
+    document.getElementById('guess-btn').disabled = false;
+  }
+}
+
+// ===================== TURNOS =====================
+function setMyTurn(val) {
+  isMyTurn = val;
+  const ind = document.getElementById('turn-indicator');
+  const qa  = document.getElementById('question-area');
+  const ap  = document.getElementById('answer-panel');
+  if (val) {
+    ind.textContent = '🎯 Sua vez!';
+    ind.className = 'your-turn';
+    qa.style.display = 'block';
+    ap.style.display = 'none';
+  } else {
+    ind.textContent = '⏳ Vez do adversário';
+    ind.className = 'wait';
+    qa.style.display = 'none';
+    if (!pendingQuestion) ap.style.display = 'none';
+  }
+}
+
+// ===================== PERGUNTAS =====================
+function sendQuestion() {
+  const input = document.getElementById('question-input');
+  const text = input.value.trim();
+  if (!text) return;
+  addMsg(text, 'question');
+  socket.emit('send_question', { text });
+  input.value = '';
+  document.getElementById('question-area').style.display = 'none';
+}
+
+function sendAnswer(answer) {
+  addMsg(`Você respondeu: ${answer}`, 'system');
+  socket.emit('send_answer', { answer });
+  document.getElementById('answer-panel').style.display = 'none';
+  pendingQuestion = null;
+}
+
+function guessCharacter() {
+  if (selectedGuessIndex === null) return;
+  socket.emit('guess_character', { charIndex: selectedGuessIndex });
+}
+
+function addMsg(text, type) {
+  const log = document.getElementById('chat-log');
+  const div = document.createElement('div');
+  div.className = `msg ${type}`;
+  div.textContent = text;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ===================== SOCKET EVENTS =====================
+socket.on('room_created', ({ roomId, playerNum: pn }) => {
+  playerNum = pn;
+  document.getElementById('display-room-code').textContent = roomId;
+  showScreen('screen-waiting');
+});
+
+socket.on('room_joined', ({ playerNum: pn }) => {
+  playerNum = pn;
+});
+
+socket.on('both_connected', () => {
+  buildChooseGrid();
+  showScreen('screen-choose');
+});
+
+socket.on('character_chosen', () => {
+  addMsg('Personagem confirmado! Aguardando adversário...', 'system');
+  document.getElementById('confirm-btn').disabled = true;
+  document.getElementById('confirm-btn').textContent = 'Aguardando...';
+});
+
+socket.on('your_turn', () => {
+  buildBoard();
+  showScreen('screen-game');
+  setMyTurn(true);
+});
+
+socket.on('wait_turn', () => {
+  buildBoard();
+  showScreen('screen-game');
+  setMyTurn(false);
+});
+
+socket.on('receive_question', ({ text }) => {
+  pendingQuestion = text;
+  document.getElementById('question-text').textContent = text;
+  document.getElementById('answer-panel').style.display = 'flex';
+  addMsg(`❓ ${text}`, 'question');
+});
+
+socket.on('receive_answer', ({ answer }) => {
+  addMsg(`↩️ Resposta: ${answer}`, answer.includes('Sim') ? 'answer-yes' : 'answer-no');
+  setMyTurn(true);
+});
+
+socket.on('guess_result', ({ correct }) => {
+  const modal = document.getElementById('modal');
+  document.getElementById('modal-emoji').textContent  = correct ? '🏆' : '💔';
+  document.getElementById('modal-title').textContent  = correct ? 'Acertou!' : 'Errou!';
+  document.getElementById('modal-msg').textContent    = correct
+    ? 'Você adivinhou o personagem do adversário!'
+    : 'Você não adivinhou... O adversário ganhou!';
+  modal.classList.add('show');
+});
+
+socket.on('opponent_left', () => {
+  alert('O adversário saiu da partida. 😢');
+  location.reload();
+});
+
+socket.on('error', (msg) => {
+  document.getElementById('join-error').textContent = msg;
+});
+</script>
 </body>
 </html>
