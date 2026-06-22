@@ -40,6 +40,8 @@ function generateCharacters() {
 io.on("connection", (socket) => {
 
     socket.on("createRoom", (roomId) => {
+	
+	console.log("CRIAR SALA RECEBIDO:", roomId);
         socket.join(roomId);
 
         rooms[roomId] = {
@@ -53,6 +55,7 @@ io.on("connection", (socket) => {
     });
 
     socket.on("joinRoom", (roomId) => {
+	console.log("Tentando entrar na sala:", roomId);
         const room = rooms[roomId];
 
         if (!room) {
@@ -66,6 +69,7 @@ io.on("connection", (socket) => {
         }
 
         room.players.push(socket.id);
+	console.log("Jogador entrou. Total:", room.players.length);
         socket.join(roomId);
 
         // manda tabuleiro para os 2 jogadores
