@@ -1,4 +1,4 @@
-const socket = io(https://cara-a-cara-online-zikq.onrender.com);
+const socket = io("https://cara-a-cara-online-zikq.onrender.com");
 
 socket.on("connect", () => {
     console.log("CONECTADO NO SERVIDOR:", socket.id);
