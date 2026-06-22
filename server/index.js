@@ -11,18 +11,45 @@ app.use(express.static(path.join(__dirname, "../public")));
 
 const rooms = {};
 
+function generateCharacters() {
+    const genders = ["M", "F"];
+    const skin = ["clara", "media", "escura"];
+    const hair = ["careca", "curto", "longo"];
+    const eyes = ["azul", "castanho", "verde"];
+
+    let characters = [];
+
+    let id = 0;
+
+    for (let g of genders)
+    for (let s of skin)
+    for (let h of hair)
+    for (let e of eyes) {
+        characters.push({
+            id: id++,
+            gender: g,
+            skin: s,
+            hair: h,
+            eyes: e
+        });
+    }
+
+    return characters;
+}
+
 io.on("connection", (socket) => {
-    console.log("Novo jogador conectado:", socket.id);
 
     socket.on("createRoom", (roomId) => {
         socket.join(roomId);
 
         rooms[roomId] = {
-            players: [socket.id]
+            players: [socket.id],
+            characters: generateCharacters(),
+            secrets: {},
+            turn: null
         };
 
         socket.emit("roomCreated", roomId);
-        console.log(`Sala criada: ${roomId}`);
     });
 
     socket.on("joinRoom", (roomId) => {
@@ -41,20 +68,48 @@ io.on("connection", (socket) => {
         room.players.push(socket.id);
         socket.join(roomId);
 
-        io.to(roomId).emit("playerJoined", {
-            players: room.players.length
+        // manda tabuleiro para os 2 jogadores
+        io.to(roomId).emit("gameStart", {
+            characters: room.characters
         });
 
-        console.log(`Jogador entrou na sala: ${roomId}`);
+        room.turn = room.players[0];
+
+        io.to(roomId).emit("turnUpdate", room.turn);
     });
 
-    socket.on("disconnect", () => {
-        console.log("Jogador desconectado:", socket.id);
+    socket.on("chooseSecret", ({ roomId, characterId }) => {
+        const room = rooms[roomId];
+        room.secrets[socket.id] = characterId;
+    });
+
+    socket.on("askQuestion", ({ roomId, question }) => {
+        const room = rooms[roomId];
+
+        socket.to(roomId).emit("question", {
+            question
+        });
+    });
+
+    socket.on("answer", ({ roomId, answer }) => {
+        const room = rooms[roomId];
+
+        io.to(roomId).emit("answer", answer);
+    });
+
+    socket.on("guess", ({ roomId, guessId }) => {
+        const room = rooms[roomId];
+
+        const secret = Object.values(room.secrets).find(id => id !== undefined);
+
+        if (guessId === secret) {
+            io.to(roomId).emit("gameOver", {
+                winner: socket.id
+            });
+        }
     });
 });
 
-const PORT = process.env.PORT || 3000;
-
-server.listen(PORT, () => {
-    console.log("Servidor rodando na porta " + PORT);
+server.listen(process.env.PORT || 3000, () => {
+    console.log("Servidor rodando");
 });
