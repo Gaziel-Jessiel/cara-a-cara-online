@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Cara a Cara Online</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="container">
+        <h1>🎮 Cara a Cara Online</h1>
+
+        <div class="card">
+
+            <h2>Criar ou entrar em uma sala</h2>
+
+            <input id="roomInput" placeholder="Digite o código da sala" />
+
+            <div class="buttons">
+                <button onclick="createRoom()">Criar Sala</button>
+                <button onclick="joinRoom()">Entrar na Sala</button>
+            </div>
+
+            <p id="status"></p>
+
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
