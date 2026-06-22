@@ -63,3 +63,23 @@ button:last-child {
     font-size: 14px;
     color: #cbd5e1;
 }
+
+#board{
+    display:grid;
+    grid-template-columns:repeat(6,1fr);
+    gap:10px;
+    margin-top:20px;
+}
+
+.card{
+    border:1px solid #ccc;
+    padding:10px;
+    border-radius:8px;
+    cursor:pointer;
+    background:white;
+    color:black;
+}
+
+.card.eliminated{
+    opacity:0.3;
+}
