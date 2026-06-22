@@ -24,7 +24,9 @@ function joinRoom() {
 }
 
 socket.on("roomCreated", (roomId) => {
+    document.getElementById("roomInput").value = roomId;
     statusDiv.innerText = "Você criou a sala: " + roomId;
+
 });
 
 socket.on("playerJoined", (data) => {
