@@ -1,4 +1,4 @@
-const socket = io();
+const socket = io(https://cara-a-cara-online-zikq.onrender.com);
 
 const statusDiv = document.getElementById("status");
 
