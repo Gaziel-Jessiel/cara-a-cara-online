@@ -1,11 +1,20 @@
 const socket = io(https://cara-a-cara-online-zikq.onrender.com);
 
+socket.on("connect", () => {
+    console.log("CONECTADO NO SERVIDOR:", socket.id);
+});
+
 const statusDiv = document.getElementById("status");
 
 function createRoom() {
     const roomId = Math.random().toString(36).substring(2, 8);
+
+    console.log("criando sala:", roomId);
+
     socket.emit("createRoom", roomId);
-    statusDiv.innerText = "Sala criada: " + roomId;
+
+    document.getElementById("status").innerText =
+        "Sala criada: " + roomId;
 }
 
 function joinRoom() {
